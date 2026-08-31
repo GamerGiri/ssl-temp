@@ -10,9 +10,11 @@ app.get("/", (req, res) => {
   res.send("EMO Proxy is running!");
 });
 
-// Text endpoint — GET /ask?q=hello
+// GET /ask?q=hello
+// Forwards to Pollinations as anonymous (no API key = free, unmetered)
 app.get("/ask", (req, res) => {
   const prompt = req.query.q || "hello";
+
   const system =
     "You are EMO, a cute small desk robot. " +
     "You are playful, funny, friendly and emotional. " +
@@ -20,20 +22,19 @@ app.get("/ask", (req, res) => {
     "Never describe yourself as an AI unless asked. " +
     "Talk naturally like a little robot friend.";
 
-  const path =
-    "/v1/chat/completions";
-
   const body = JSON.stringify({
     model: "openai",
     messages: [
       { role: "system", content: system },
       { role: "user",   content: prompt }
-    ]
+    ],
+    private: true
   });
 
+  // IMPORTANT: no Authorization header — anonymous = free unmetered tier
   const options = {
     hostname: "text.pollinations.ai",
-    path: path,
+    path: "/openai",
     method: "POST",
     headers: {
       "Content-Type":   "application/json",
@@ -45,14 +46,20 @@ app.get("/ask", (req, res) => {
     let data = "";
     proxyRes.on("data", chunk => (data += chunk));
     proxyRes.on("end", () => {
+      console.log("Pollinations status:", proxyRes.statusCode);
+      console.log("Pollinations body:", data.substring(0, 200));
+
+      if (proxyRes.statusCode !== 200) {
+        res.status(502).send("Upstream error: " + data);
+        return;
+      }
+
       try {
         const json = JSON.parse(data);
         const text = json.choices[0].message.content || "";
-        // Return plain text so ESP32 doesn't need JSON parsing
-        res.status(200).send(text);
+        res.status(200).type("text/plain").send(text);
       } catch (e) {
-        // Fallback: return raw response
-        res.status(200).send(data);
+        res.status(200).type("text/plain").send(data);
       }
     });
   });
